@@ -1,0 +1,146 @@
+---
+title: "CT_photon"
+author: "Chenw"
+date: "2024-02-27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# library R packages
+```{r}
+setwd("E:\\A3_Lab\\CT_carbon\\Photon_crz")
+
+library(dplyr)
+library(tidyr)
+```
+
+
+# raw data input
+```{r}
+# 先读取需要处理的文件进入R进行浏览，然后选择需要进行后续分析的列进一步分析
+rawdata = read.csv("SearchResults 3104.csv")
+
+#因为要提取很多列，我先把列名列出来
+colnames(rawdata)
+
+
+data_all = read.csv("data_all.csv")
+a = intersect(rawdata$NCT.Number, data_all$Id)
+
+data3 = rawdata[which(rawdata$NCT.Number %in% a),]
+write.csv(data3, file = "data3.csv")
+
+
+rawdata = rawdata[which(!(rawdata$NCT.Number %in% a)),]
+
+# 可以看到，从第28列及以后都是空列，是不要的，影响观感，先去掉
+rawdata = rawdata[,1:27]
+colnames(rawdata)
+
+# 另外发现，有几行数据是乱码的，去掉.
+# 去掉的思路：寻找那几行异常值与其他行的特点：1、所有行都是有NCT号的，NCT号都会有"NCT“这个字符
+# 所以，将含有NCT这三个字符的行提取出来，就可以把那些异常的给去掉
+rawdata = rawdata[grepl("NCT", rawdata$NCT.Number, ignore.case = T),]
+
+# 进行提取需要进一步处理的列作为新的数据框
+data = rawdata[,c("Status",
+                  "Conditions",
+                  "Sponsor.Collaborators",
+                  "Gender",
+                  "Age",
+                  "Phases",
+                  "Enrollment",
+                  "Funded.Bys",
+                  "Study.Designs",
+                  "Start.Date",
+                  "Locations")]
+
+
+# 其中，对于study.designs这一列，里面有很多个变量，由|分隔，所以根据|号将该列拆成多列
+
+data = separate(data, Study.Designs, into = c("Allocation",
+                                              "Intervention",
+                                              "Masking",
+                                              "Primary_Purpose"), sep = "\\|")
+```
+
+# 字符型变量的处理
+```{r}
+
+# 临床试验status的整理
+# 查阅文献，发现临床试验status分为这几类：
+# The recruitment status of the clinical trials was categorized into 4 classes: Ongoing (“Not yet recruiting”, “Recruiting”, “Enrolling by invitation”, “Active, not recruiting”, “Suspended”), Completed, Stopped Early (“Withdrawn”, “Terminated”) and Unknown Status. 
+
+# 首先创建一个新的status列，命名为Recruitment_status
+data = data %>%
+  mutate(Recruitment_status = Status) %>%   # 新建命名为Recruitment_status 值与原本Status相同的列
+  select(1:Status, Recruitment_status, everything()) # 把这个新建的列放在原本的Status列的后面
+
+data$Recruitment_status = as.character(data$Recruitment_status) # 因为该变量是字符型，先定义
+
+# 接着，将对应的值替换成所定义的类型
+data$Recruitment_status[data$Status %in%
+                           c("Not yet recruiting", "Recruiting",
+                             "Enrolling by invitation", "Active, not recruiting", 
+                             "Suspended")] <- "Ongoing"
+data$Recruitment_status[data$Status %in%
+                           c("Withdrawn", "Terminated")] <- "Stopped Early"
+
+data$Recruitment_status[data$Status %in%
+                           c("No Results Available")] <- "Unknown status"
+
+table(data$Status)
+table(data$Recruitment_status)
+# 可以看到，原本很多分类的变成了4分类了，便于后续的分析。其他字符型变量以此类推
+
+
+
+# Phases的处理
+table(data$Phases)
+
+data = data %>%
+  mutate(phase_done = Phases) %>%
+  select(1:Phases, phase_done, everything())
+
+data$phase_done = as.character(data$phase_done)
+
+data$phase_done[data$Phases %in% 
+                        c("Early Phase 1", "Phase 1")] <- "Phase 1"
+data$phase_done[data$Phases %in% 
+                        c("Phase 1|Phase 2")] <- "Phase 1/Phase 2"
+data$phase_done[data$Phases %in% 
+                        c("Phase 2|Phase 3")] <- "Phase 2/Phase 3"
+
+table(data$phase_done)
+
+
+write.csv(data, file = "data1.csv")
+```
+
+# 数值型变量处理
+```{r}
+data = read.csv("data1.csv")
+
+# 这里的数值型变量为临床试验的样本量
+
+data = data %>%
+  mutate(enrollment_segm = NA) %>%
+  select(1:Enrollment, enrollment_segm, everything())
+data$enrollment_segm = case_when(
+  data$Enrollment <= 50 ~ "<50",
+  data$Enrollment >50 & data$Enrollment <= 100 ~ "50-100",
+  data$Enrollment >100 ~ ">100",
+  TRUE ~ NA_character_
+)
+
+write.csv(data, file = "data2.csv")
+
+```
+
+
+
+
+
